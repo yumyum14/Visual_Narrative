@@ -7,7 +7,7 @@ class ScrollTelling {
         
         this.currentSection = 0;
         this.scrollCount = 0;
-        this.scrollThreshold = 1;
+        this.scrollThreshold = 2;
         this.isScrolling = false;
         this.scrollDelay = 800;
         
@@ -28,6 +28,11 @@ class ScrollTelling {
             this.checkOrientation();
             this.setupContinueButton();
             
+            // Preload images on mobile
+            if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+                setTimeout(() => this.preloadImages(), 1000);
+            }
+            
             // Add event listeners for orientation and resize
             window.addEventListener('orientationchange', () => {
                 setTimeout(() => this.checkOrientation(), 100);
@@ -40,6 +45,14 @@ class ScrollTelling {
             // Setup touch events
             this.setupTouchEvents();
             
+            // Debug: Test image loading after a delay
+            setTimeout(() => {
+                console.log('Testing all image sources:');
+                document.querySelectorAll('.section-image').forEach((img, index) => {
+                    console.log(`Image ${index + 1}:`, img.src, 'loaded:', img.complete);
+                });
+            }, 2000);
+            
             console.log('ScrollTelling initialized successfully');
         } catch (error) {
             console.error('Failed to initialize ScrollTelling:', error);
@@ -48,13 +61,16 @@ class ScrollTelling {
     }
     
     createSections() {
-        // Create 19 sections
+        // Create 25 sections
         const totalImages = 25;
         this.container.style.width = `${totalImages * 100}vw`;
         
         for (let i = 0; i < totalImages; i++) {
             const imageNumber = i + 1;
-            const imagePath = `./images/image${imageNumber}.png`;
+            // Try different path formats - adjust based on your directory structure
+            const imagePath = `images/image${imageNumber}.png`; // Changed from ./images/
+            
+            console.log(`Loading image from: ${imagePath}`); // Debug log
             
             const section = document.createElement('section');
             section.className = `section ${i === 0 ? 'active' : ''}`;
@@ -62,21 +78,85 @@ class ScrollTelling {
             
             section.innerHTML = `
                 <div class="image-container">
-                    <div class="image-loading">Loading Image ${imageNumber}...</div>
+                    <div class="image-loading" id="loading-${imageNumber}">
+                        Loading Image ${imageNumber}...
+                    </div>
                     <img src="${imagePath}" 
                          alt="Image ${imageNumber}" 
                          class="section-image"
                          loading="lazy"
-                         onload="this.previousElementSibling.style.display='none'"
-                         onerror="this.style.display='none'; this.previousElementSibling.textContent='Image ${imageNumber} failed to load'">
+                         data-src="${imagePath}"
+                         onload="this.previousElementSibling.style.display='none'; console.log('Image ${imageNumber} loaded')"
+                         onerror="handleImageError(this, ${imageNumber})">
                 </div>
             `;
             
             this.container.appendChild(section);
-            this.images.push({ src: imagePath, alt: `Image ${imageNumber}` });
+            this.images.push({ 
+                src: imagePath, 
+                alt: `Image ${imageNumber}`,
+                element: null
+            });
         }
         
         this.sections = document.querySelectorAll('.section');
+        
+        // Add global error handler
+        window.handleImageError = function(img, number) {
+            console.error(`Failed to load image ${number} from: ${img.src}`);
+            img.style.display = 'none';
+            const loadingEl = document.getElementById(`loading-${number}`);
+            if (loadingEl) {
+                loadingEl.textContent = `Image ${number} failed to load`;
+                loadingEl.style.color = '#ff4444';
+            }
+        };
+    }
+    
+    preloadImages() {
+        console.log('Preloading images for mobile...');
+        
+        for (let i = 0; i < this.images.length; i++) {
+            const img = new Image();
+            const imageNumber = i + 1;
+            const imagePath = `images/image${imageNumber}.png`;
+            
+            img.onload = () => {
+                console.log(`Preloaded image ${imageNumber}`);
+                // Update the actual image element if it exists
+                const imgElement = document.querySelector(`#section-${imageNumber} .section-image`);
+                if (imgElement && imgElement.getAttribute('src') !== imagePath) {
+                    imgElement.src = imagePath;
+                }
+            };
+            
+            img.onerror = () => {
+                console.error(`Failed to preload image ${imageNumber}`);
+                // Try alternative paths
+                const alternativePaths = [
+                    `./images/image${imageNumber}.png`,
+                    `/images/image${imageNumber}.png`,
+                    `./image${imageNumber}.png`,
+                    `image${imageNumber}.png`
+                ];
+                
+                // Try each alternative path
+                for (let altPath of alternativePaths) {
+                    console.log(`Trying alternative: ${altPath}`);
+                    const testImg = new Image();
+                    testImg.onload = () => {
+                        console.log(`Found image at: ${altPath}`);
+                        const imgElement = document.querySelector(`#section-${imageNumber} .section-image`);
+                        if (imgElement) {
+                            imgElement.src = altPath;
+                        }
+                    };
+                    testImg.src = altPath;
+                }
+            };
+            
+            img.src = imagePath;
+        }
     }
     
     createGlobalProgressBar() {
@@ -151,8 +231,23 @@ class ScrollTelling {
             
             if (mainContainer) mainContainer.style.display = 'flex';
             
-            // Update image display for landscape
-            this.updateImageDisplayForLandscape();
+            // Reload images on orientation change for mobile
+            if (isMobile) {
+                this.reloadImagesForOrientation();
+            }
+        }
+    }
+    
+    reloadImagesForOrientation() {
+        // Force image reload for current section
+        const currentImage = document.querySelector(`#section-${this.currentSection + 1} .section-image`);
+        if (currentImage) {
+            const src = currentImage.src;
+            currentImage.src = '';
+            setTimeout(() => {
+                currentImage.src = src;
+                console.log(`Reloaded image for orientation change: ${src}`);
+            }, 100);
         }
     }
     
@@ -161,13 +256,11 @@ class ScrollTelling {
             // Mobile landscape mode
             document.querySelectorAll('.section-image').forEach(img => {
                 img.style.objectFit = 'contain';
-                img.style.filter = 'brightness(0.85)';
             });
         } else {
             // Desktop or portrait mode
             document.querySelectorAll('.section-image').forEach(img => {
                 img.style.objectFit = 'cover';
-                img.style.filter = 'brightness(0.7)';
             });
         }
     }
@@ -189,8 +282,21 @@ class ScrollTelling {
                 
                 // Force show content even in portrait
                 document.body.classList.add('force-show-content');
+                
+                // Force reload images when continuing in portrait
+                this.reloadAllImages();
             });
         }
+    }
+    
+    reloadAllImages() {
+        document.querySelectorAll('.section-image').forEach(img => {
+            const src = img.src;
+            img.src = '';
+            setTimeout(() => {
+                img.src = src;
+            }, 50);
+        });
     }
     
     setupScrollHandler() {
@@ -354,9 +460,47 @@ class ScrollTelling {
         `;
         document.body.appendChild(errorDiv);
     }
+    
+    // Test image accessibility
+    testImageAccessibility() {
+        console.log('Testing image accessibility...');
+        fetch('images/image1.png')
+            .then(response => {
+                console.log('Image 1 status:', response.status);
+                return response.blob();
+            })
+            .then(blob => {
+                console.log('Image 1 size:', blob.size, 'bytes');
+            })
+            .catch(error => {
+                console.error('Image 1 fetch error:', error);
+                console.log('Trying alternative paths...');
+                // Test alternative paths
+                this.testAlternativePaths();
+            });
+    }
+    
+    testAlternativePaths() {
+        const paths = [
+            './images/image1.png',
+            '/images/image1.png',
+            './image1.png',
+            'image1.png'
+        ];
+        
+        paths.forEach(path => {
+            fetch(path)
+                .then(response => {
+                    console.log(`${path} status:`, response.status);
+                })
+                .catch(error => {
+                    console.log(`${path} failed:`, error.message);
+                });
+        });
+    }
 }
 
-// TouchHandler Class (optional - you can remove this if not needed)
+// TouchHandler Class (optional)
 class TouchHandler {
     constructor(scrollTelling) {
         this.scrollTelling = scrollTelling;
@@ -401,6 +545,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize ScrollTelling
     const scrollTelling = new ScrollTelling();
+    
+    // Test image accessibility after initialization
+    setTimeout(() => {
+        scrollTelling.testImageAccessibility();
+    }, 1000);
     
     // Only initialize TouchHandler on mobile devices
     if (isMobile) {
